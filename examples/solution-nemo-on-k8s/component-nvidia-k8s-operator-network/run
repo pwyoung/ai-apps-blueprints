@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+
+# Exit on error
+set -e
+
+# Location of this script
+MY_DIR=$(cd "$(dirname "$0")"; pwd -P)
+
+DEPLOYMENT='network-operator'
+
+show_usage()
+{
+    printf "Usage: $0 <command>\n"
+    cat <<EOF
+    -c|--clean
+    -b|--build
+    -t|--test
+    -h|--help
+
+    Example:
+      $0 -C -b -t
+EOF
+    exit 0
+}
+
+if [[ $# -lt 1 ]]; then
+    show_usage "$@"
+fi
+
+clean() {
+    echo "Clean"
+}
+
+build() {
+    echo "Build"
+
+    # Show the cluster
+    kubectl get nodes -o wide
+    read -p "If this is the cluster to deploy to, hit enter, otherwise hit ctrl-c"
+
+    if ! kubectl get deployment --all-namespaces | grep "$DEPLOYMENT" | wc -l | grep 0; then
+        echo "It looks like the operator was already deployed. Skipping installation"
+        return
+    fi
+
+    # Install Helm
+    if ! command -v helm &>/dev/null; then
+        echo "Installing Helm"
+        cd /tmp
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 \
+            && chmod 700 get_helm.sh \
+            && ./get_helm.sh
+    fi
+
+    URL='https://helm.ngc.nvidia.com/nvidia'
+    if ! helm repo list | grep $URL &>/dev/null; then
+        echo "Add Nvidia Helm repo"
+        helm repo add nvidia $URL && helm repo update
+        helm repo update
+    fi
+
+    # To customize the operator
+    # https://docs.nvidia.com/networking/display/cokan10/network+operator#src-39285883_NetworkOperator-GeneralParameters
+    #helm show values nvidia/network-operator --version v23.4.0 > /tmp/values.yaml
+    # add "-f values" below
+
+    #echo "Install the Operator"
+    # Official docs
+    #   https://docs.nvidia.com/networking/display/cokan10/network+operator#src-39285883_NetworkOperator-NetworkOperatorDeploymentonVanillaKubernetesCluster
+    helm install network-operator nvidia/network-operator \
+         -n nvidia-network-operator \
+         --create-namespace \
+         --version v23.4.0 \
+         --wait
+}
+
+run_test() {
+    echo "Test"
+
+    N=$(kubectl get deployment --all-namespaces | grep "$DEPLOYMENT" | grep '1/1' | wc -l)
+    if [ $N -eq 0 ]; then
+        echo "It looks like the operator is not running"
+        sleep 5
+        exit 1
+    fi
+
+    kubectl -n nvidia-network-operator get all
+
+}
+
+
+################################################################################
+
+while [[ $# -gt 0 ]]; do
+  key="$1"
+
+  case $key in
+    -c|--clean)
+        shift
+        clean
+        ;;
+    -b|--build)
+        shift
+        build
+        ;;
+    -t|--test)
+        shift
+        run_test
+        ;;
+    -h|--help)
+        show_usage
+      ;;
+    *)    # unknown option
+      POSITIONAL+=("$1") # save it in an array for later
+      shift # past argument
+      ;;
+  esac
+done

@@ -1,0 +1,3 @@
+export NGC_KEY='...from-ngc...'
+
+# See https://ngc.nvidia.com/setup/api-key

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+# Exit on error
+set -e
+
+# Location of this script
+MY_DIR=$(cd "$(dirname "$0")"; pwd -P)
+
+show_usage()
+{
+    printf "Usage: $0 <command>\n"
+    cat <<EOF
+    -p|--proxmox-kubespray
+    -h|--help
+
+    Example:
+      $0 -p
+EOF
+    exit 0
+}
+
+if [[ $# -lt 1 ]]; then
+    show_usage "$@"
+fi
+
+proxmox_kubespray() {
+    cd ${MY_DIR}/component-proxmox-vms-via-terraform && make
+    cd ${MY_DIR}/component-k8s-cluster-via-kubespray && make
+
+    cd ${MY_DIR}/component-nvidia-k8s-operator-gpu && make
+    cd ${MY_DIR}/component-nvidia-k8s-operator-mpi && make
+    cd ${MY_DIR}/component-nvidia-k8s-operator-network && make
+    cd ${MY_DIR}/component-nvidia-k8s-operator-training && make
+
+    #cd ${MY_DIR}/component-nfs-server && make
+    #cd ${MY_DIR}/component-nvidia-nemo-on-k8s && make
+}
+
+clean_proxmox_kubespray() {
+    cd ${MY_DIR}/component-proxmox-vms-via-terraform && make clean
+}
+
+################################################################################
+
+while [[ $# -gt 0 ]]; do
+  key="$1"
+
+  case $key in
+    -p|--proxmox-kubespray)
+        shift
+        proxmox_kubespray
+        ;;
+    -P|--clean-proxmox-kubespray)
+        shift
+        clean_proxmox_kubespray
+        ;;
+    -h|--help)
+        show_usage
+      ;;
+    *)    # unknown option
+      POSITIONAL+=("$1") # save it in an array for later
+      shift # past argument
+      ;;
+  esac
+done

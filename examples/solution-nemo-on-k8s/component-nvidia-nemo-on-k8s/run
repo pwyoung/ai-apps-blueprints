@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+
+# Exit on error
+set -e
+
+# Location of this script
+MY_DIR=$(cd "$(dirname "$0")"; pwd -P)
+
+show_usage()
+{
+    printf "Usage: $0 <command>\n"
+    cat <<EOF
+    -c|--clean
+    -b|--build
+    -t|--test
+    -h|--help
+
+    Example:
+      $0 -C -b -t
+EOF
+    exit 0
+}
+
+if [[ $# -lt 1 ]]; then
+    show_usage "$@"
+fi
+
+clean() {
+    echo "Clean"
+}
+
+warning() {
+    cat <<EOF
+# Per https://docs.nvidia.com/nemo-framework/user-guide/latest/playbooks/kubernetes.html
+
+NeMo Framework supports DGX A100 and H100-based Kubernetes (k8s) clusters with attached NFS storage and compute networking. Currently, the k8s updates only support GPT-based models for the data preparation, base model pre-training, model conversion, and evaluation stages with more stages and models to come soon. This document is intended as a quick-start guide to setup a cluster, prepare a dataset, and pre-train a base model with NeMo FW on k8s clusters.
+
+As for the hardware, NFS is required for the storage backend and it needs to be mounted on all nodes in the cluster at the same path. Additionally, the head node where jobs will be launched requires both helm and kubectl be accessible by the user. Lastly, the head node needs to be able to install Python dependencies via pip. This can either be done in a virtual environment or on the bare metal.
+
+
+# This implies that the K8S cluster is expected to have a GPU on each node
+https://docs.nvidia.com/nemo-framework/user-guide/latest/playbooks/kubernetes.html#data-preparation
+"Update the node_array_size to the number of worker nodes in the cluster"
+
+EOF
+}
+
+store_ngc_key() {
+    # https://docs.nvidia.com/ngc/gpu-cloud/ngc-user-guide/index.html
+
+    # Create an API key via web-browser
+    #   https://ngc.nvidia.com/signin
+    #   https://ngc.nvidia.com/setup
+    #   https://ngc.nvidia.com/setup/api-key
+
+    # Store the key locally via manual CLI commands
+    # ngc config set
+    #
+    # Result
+    # ls -l ~/.ngc/*
+    #
+    # Test
+    # ngc config current | grep 'apikey'
+
+    # Store the key in a K8S Secret
+    if ! kubectl get secret/ngc-registry; then
+
+        if [ -z "$NGC_KEY" ]; then
+            F=./config/set-ngc-key
+            if [ -e $F ]; then
+                . $F
+            fi
+            if [ -z "$NGC_KEY" ]; then
+                echo "Set NGC_KEY (e.g. in $F). See the example script, $F.EXAMPLE"
+            fi
+        fi
+        kubectl create secret docker-registry ngc-registry --docker-server=nvcr.io --docker-username=\$oauthtoken --docker-password="$NGC_KEY"
+    fi
+}
+
+build() {
+    echo "Build"
+
+    # Docs https://docs.nvidia.com/nemo-framework/user-guide/latest/playbooks/kubernetes.html
+
+    # Store the NGC API Key as a K8S Secret
+    store_ngc_key
+
+    # Use this so that the config files can hard-code
+    # the path to nemo-megatron-launcher
+    if [ ! -e /nvidia ]; then
+        mkdir -p ~/nvidia
+        sudo ln -s ~/nvidia /nvidia
+    fi
+
+    # Get the code
+    if [ ! -e /nvidia/nemo-megatron-launcher ]; then
+        cd /nvidia
+        git clone https://github.com/NVIDIA/nemo-megatron-launcher
+    fi
+
+    # Python packages
+    cd /nvidia/nemo-megatron-launcher
+    pip install -r ./requirements.txt
+
+    # Use our config files
+    MY_CFG=${MY_DIR}/config
+    #
+    F=/nvidia/nemo-megatron-launcher/launcher_scripts/conf/cluster/k8s.yaml
+    FB=$F1.backup
+    if [ ! -e $FB ]; then
+        cp $F $FB
+    fi
+    cp ${MY_CFG}/k8s.yaml $F
+    #
+    F=/nvidia/nemo-megatron-launcher/launcher_scripts/conf/config.yaml
+    FB=$F1.backup
+    if [ ! -e $FB ]; then
+        cp $F $FB
+    fi
+    cp ${MY_CFG}/config.data_preparation.yaml $F
+    #
+    F=/nvidia/nemo-megatron-launcher/launcher_scripts/conf/data_preparation/gpt3/download_gpt3_pile.yaml
+    FB=$F1.backup
+    if [ ! -e $FB ]; then
+        cp $F $FB
+    fi
+    cp ${MY_CFG}/download_gpt3_pile.data_preparation.yaml $F
+
+    # Create and run Helm Chart
+    cd /nvidia/nemo-megatron-launcher/launcher_scripts
+    python3 main.py
+
+    # Creates a Helm chart at
+    #   /nvidia/nemo-megatron-launcher/launcher_scripts/results/download_gpt3_pile/preprocess/k8s_template
+}
+
+run_test() {
+    echo "Test"
+
+    kubectl get all --all-namespaces | grep 'nlp-data-prep'
+    helm list | grep 'download-gpt3-pile'
+
+    kubectl get pods --all-namespaces | grep 'nlp-data-prep'
+    #kubectl logs --follow nlp-data-prep-launcher-zbv7p
+}
+
+
+################################################################################
+
+while [[ $# -gt 0 ]]; do
+  key="$1"
+
+  case $key in
+    -c|--clean)
+        shift
+        clean
+        ;;
+    -b|--build)
+        shift
+        build
+        ;;
+    -t|--test)
+        shift
+        run_test
+        ;;
+    -h|--help)
+        show_usage
+      ;;
+    *)    # unknown option
+      POSITIONAL+=("$1") # save it in an array for later
+      shift # past argument
+      ;;
+  esac
+done

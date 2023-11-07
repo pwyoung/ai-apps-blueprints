@@ -1,6 +1,6 @@
-# TODO
+# GOAL
 
-Create a examples of Python code that show how to do Python Config via Hydra.
+Demonstrate Python Config via Hydra.
 
 # Resources
 

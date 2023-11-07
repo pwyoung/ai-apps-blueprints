@@ -2,17 +2,16 @@
 
 Create some code that can run anywhere (Windows/WSL, Linux, or Mac/OSX)
 that demonstrates Gen-AI related skills/capabilities we need in
-order to develop GenAI Apps
+order to develop GenAI Apps.
 
 # Directories
 
 ## backlog
 The backlog has a directory for blueprints that might be useful to have.
-Each dir has a README explaining the goals of the blueprint.
-The intent is to move these to example/project directories later and
-implement them.
 
-### Naming convention is General-Specific
+Each dir has a README explaining the goals of the blueprint.
+
+# Naming convention is General-to-Specific
 Some named examples:
 - infra-aws-bastion-host
 - infra-aws-env-sagemaker-with-nemo
