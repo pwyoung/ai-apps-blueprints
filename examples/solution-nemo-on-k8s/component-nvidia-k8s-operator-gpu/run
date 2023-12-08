@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+# Exit on error
+set -e
+
+# Location of this script
+MY_DIR=$(cd "$(dirname "$0")"; pwd -P)
+
+DEPLOYMENT="gpu-operator"
+
+show_usage()
+{
+    printf "Usage: $0 <command>\n"
+    cat <<EOF
+    -c|--clean
+    -b|--build
+    -t|--test
+    -h|--help
+
+    Example:
+      $0 -C -b -t
+EOF
+    exit 0
+}
+
+if [[ $# -lt 1 ]]; then
+    show_usage "$@"
+fi
+
+clean() {
+    echo "Clean"
+}
+
+build() {
+    echo "Build"
+
+    # Show the cluster
+    kubectl get nodes -o wide
+    read -p "If this is the cluster to deploy to, hit enter, otherwise hit ctrl-c"
+
+    if ! kubectl get deployment --all-namespaces | grep "$DEPLOYMENT" | wc -l | grep 0; then
+        echo "It looks like the operator was already deployed. Skipping installation"
+        return
+    fi
+
+    # Install Helm
+    if ! command -v helm &>/dev/null; then
+        echo "Installing Helm"
+        cd /tmp
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 \
+            && chmod 700 get_helm.sh \
+            && ./get_helm.sh
+    fi
+
+    URL='https://helm.ngc.nvidia.com/nvidia'
+    if ! helm repo list | grep $URL &>/dev/null; then
+        echo "Add Nvidia Helm repo"
+        helm repo add nvidia $URL && helm repo update
+        helm repo update
+    fi
+
+    # https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html#prerequisites
+    echo "Support PSA (which is standard for a while now)"
+    NS='nvidia/gpu-operator'
+    kubectl create ns gpu-operator
+    kubectl label --overwrite ns gpu-operator pod-security.kubernetes.io/enforce=privileged
+
+    if kubectl get nodes -o json | jq '.items[].metadata.labels | keys | any(startswith("feature.node.kubernetes.io"))' | sort -u | grep true; then
+        echo "NFD is already installed. See docs to address"
+        echo "https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html#prerequisites"
+        exit 1
+    fi
+
+    # Ignore some nodes
+    # kubectl label nodes $NODE nvidia.com/gpu.deploy.operands=false
+
+    echo "Install the Operator"
+    # mokutil --sb-state # Confirm secure boot
+    echo "Assuming Secure Boot system"
+    echo "Must use pre-compiled binaries on Secure Boot systems"
+
+    # Install pre-compiled binaries
+    #   https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/install-precompiled-signed-drivers.html
+    DRIVER_BRANCH='515'
+    helm install --wait gpu-operator \
+         -n gpu-operator --create-namespace \
+         nvidia/gpu-operator \
+         --set driver.version=${DRIVER_BRANCH}-signed
+
+}
+
+run_test() {
+    echo "Test"
+
+    N=$(kubectl get deployment --all-namespaces | grep "$DEPLOYMENT" | grep '1/1' | wc -l)
+    if [ $N -gt 0 ]; then
+        echo "It looks like the operator is running ($N deployments)"
+    fi
+
+    #echo "Showing nodes with NVIDIA labels"
+    #kubectl get nodes -o wide  --show-labels=true | grep -i nvidia
+
+    LOG=/tmp/nvidia-gpu-operator.out.log
+    SEP="################################################################################"
+    echo "Look at logs and state in more detail" | tee $LOG
+    for i in $(kubectl -n gpu-operator get pods | awk '{print $1}' | grep 'operator'); do
+        echo $SEP | tee -a $LOG
+        echo $i | tee -a $LOG
+        echo $SEP | tee -a $LOG
+        kubectl -n gpu-operator logs $i | tail -8 | tee -a $LOG
+    done
+    echo $SEP | tee -a $LOG
+    kubectl get all -n gpu-operator | tee -a $LOG
+    echo "A log file for the above is in $LOG"
+}
+
+
+################################################################################
+
+while [[ $# -gt 0 ]]; do
+  key="$1"
+
+  case $key in
+    -c|--clean)
+        shift
+        clean
+        ;;
+    -b|--build)
+        shift
+        build
+        ;;
+    -t|--test)
+        shift
+        run_test
+        ;;
+    -h|--help)
+        show_usage
+      ;;
+    *)    # unknown option
+      POSITIONAL+=("$1") # save it in an array for later
+      shift # past argument
+      ;;
+  esac
+done

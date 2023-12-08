@@ -1,0 +1,181 @@
+---
+
+
+# Conventions:
+#   vm_id = 99XY
+#   name = "vm-99XY"
+#   mac_address = "00:00:00:00:99:XY"
+# This way:
+#   Machines are grouped/ordered in the GUI
+#   Scripting (to start/stop) machines is easier
+#   IP management via DHCP is easier
+
+
+# TODO: Add support for building a VM from scratch (not a clone)
+#       Reason: Clones that declare disks get rebuilt each time
+#       TF is run
+#
+#disk_list: {}
+#- interface: "scsi1"
+#  size: 500
+#  ssd: true
+#  iothread: false
+#  cache: "none"
+#  datastore_id: "local"
+
+
+virtual_machine_globals:
+  node_name: "pve"
+  description: "Managed by Terraform"
+  tags:
+  - "k8s"
+
+
+virtual_machines:
+- description: "K8S control Node"
+  tags:
+  - "gpu-none"
+  name: "vm-9901"
+  vm_id: 9901
+  network_device_list:
+  - mac_address: "00:00:00:00:99:01"
+  clone:
+  - vm_id: 103
+  agent:
+  - enabled: true
+  operating_system:
+  - type: "l26"
+  vga:
+  - enabled: true
+    type: std
+  memory:
+  - ballooning: 16384
+  disk_list: {}
+  cpu:
+  - cores: 1
+    type: "x86-64-v2-AES"
+    flags:
+    - ""
+  hostpci_list: {}
+  kvm_arguments: ""
+- description: "K8S control Node"
+  tags:
+  - "gpu-none"
+  name: "vm-9902"
+  vm_id: 9902
+  network_device_list:
+  - mac_address: "00:00:00:00:99:02"
+  clone:
+  - vm_id: 103
+  agent:
+  - enabled: true
+  operating_system:
+  - type: "l26"
+  vga:
+  - enabled: true
+    type: std
+  hostpci_list: {}
+  cpu:
+  - cores: 2
+    type: "host"
+    flags:
+    - ""
+  memory:
+  - ballooning: 16384
+  kvm_arguments: ""
+  disk_list: {}
+  hostpci_list: {}
+- description: "K8S worker. GPU-enabled"
+  tags:
+  - "gpu-nvidia"
+  name: "vm-9903"
+  vm_id: 9903
+  network_device_list:
+  - mac_address: "00:00:00:00:99:03"
+  clone:
+  - vm_id: 103
+  agent:
+  - enabled: true
+  operating_system:
+  - type: "l26"
+  memory:
+  - ballooning: 32768
+  vga:
+  - enabled: true
+    type: std
+  ################################################################################
+  # GPU PASS-THROUGH CONFIG: START
+  ################################################################################
+  # Document a working GPU pass-through config.
+  # When the Nvidia GPU has a PCIe BUS ID = "0000:01:00",
+  # etc/pve/qemu-server/<VM_ID>.conf contained:
+  #   machine: q35
+  #   bios: ovmf
+  #   hostpci0: 0000:01:00,pcie=1
+  #   cpu: host,hidden=1,flags=+pcid
+  #   args: -cpu 'host,+kvm_pv_unhalt,+kvm_pv_eoi,hv_vendor_id=NV43FIX,kvm=off'
+  hostpci_list:
+  - device: "hostpci0"
+    id: "0000:01:00"
+    pcie: true
+  cpu:
+  - cores: 1
+    type: "host"
+    flags:
+    - "+pcid"
+  kvm_arguments: "-cpu 'host,+kvm_pv_unhalt,+kvm_pv_eoi,hv_vendor_id=NV43FIX,kvm=off'"
+  disk_list: {}
+- description: "K8S worker"
+  tags:
+  - "gpu-none"
+  name: "vm-9904"
+  vm_id: 9904
+  network_device_list:
+  - mac_address: "00:00:00:00:99:04"
+  clone:
+  - vm_id: 103
+  agent:
+  - enabled: true
+  operating_system:
+  - type: "l26"
+  vga:
+  - enabled: true
+    type: std
+  hostpci_list: {}
+  cpu:
+  - cores: 1
+    type: "x86-64-v2-AES"
+    flags:
+    - ""
+  memory:
+  - ballooning: 16384
+  kvm_arguments: ""
+  disk_list: {}
+  hostpci_list: {}
+- description: "K8S worker"
+  tags:
+  - "gpu-none"
+  name: "vm-9905"
+  vm_id: 9905
+  network_device_list:
+  - mac_address: "00:00:00:00:99:05"
+  clone:
+  - vm_id: 103
+  agent:
+  - enabled: true
+  operating_system:
+  - type: "l26"
+  vga:
+  - enabled: true
+    type: std
+  hostpci_list: {}
+  cpu:
+  - cores: 1
+    type: "x86-64-v2-AES"
+    flags:
+    - ""
+  memory:
+  - ballooning: 16384
+  kvm_arguments: ""
+  disk_list: {}
+  hostpci_list: {}

@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+
+# Exit on error
+set -e
+
+# Location of this script
+MY_DIR=$(cd "$(dirname "$0")"; pwd -P)
+
+show_usage()
+{
+    printf "Usage: $0 <command>\n"
+    cat <<EOF
+    -c|--clean
+    -b|--build
+    -t|--test
+    -h|--help
+
+    Example:
+      $0 -C -b -t
+EOF
+    exit 0
+}
+
+if [[ $# -lt 1 ]]; then
+    show_usage "$@"
+fi
+
+clean() {
+    echo "Clean"
+}
+
+build() {
+    echo "Build"
+
+    # Get a RELEASE version of Kubespray, and
+    # make it the current/working directory.
+    if ! ls -1 ./kubespray 2>/dev/null; then
+        git clone https://github.com/kubernetes-sigs/kubespray
+        cd ./kubespray
+        TAG='release-2.23'
+        git checkout $TAG
+        cp -rfp inventory/sample inventory/mycluster
+    else
+        cd ./kubespray
+    fi
+
+    # Kubespray requirements
+    pip install -r requirements.txt
+
+    # https://github.com/kubernetes-sigs/kubespray/issues/10688
+    # Fails when: ansible-core 2.14.12 is installed
+    pip install ansible-core==2.14.11
+    pip list | grep ansible-core | grep '2.14.11' # confirm version
+
+    # Ansible Hosts config file
+    if ! ls -1 ../config/hosts.yaml; then
+        # The first 2 IPs will be control-plane nodes.
+        #declare -a IPS=(192.168.3.201 192.168.3.195 192.168.3.191 192.168.3.192 192.168.3.190)
+        IPS=$(cat ../config/ips.txt)
+        CONFIG_FILE=../config/hosts.yaml python3 contrib/inventory_builder/inventory.py ${IPS[@]}
+        echo "Edit config/hosts.yaml as needed and run this again"
+        echo "Make sure to put ansible_user in the hosts section if it is not 'ubuntu'"
+        exit 1
+    fi
+    # Copy the config file to where it will be read.
+    cp ../config/hosts.yaml inventory/mycluster/hosts.yaml
+
+    # Review general parameters
+    # cat inventory/mycluster/group_vars/all/all.yml
+    # cat inventory/mycluster/group_vars/k8s_cluster/k8s-cluster.yml
+
+    # DEPLOY
+    # "ansible_user" if it varies by host, can be put in the hosts.yaml file
+    ansible-playbook -i inventory/mycluster/hosts.yaml --extra-vars "ansible_user=ubuntu" --become --become-user=root cluster.yml
+
+}
+
+run_test() {
+    echo "Test"
+
+    # IP of a control-plane node
+    # The first two nodes should be control nodes
+    IP=$(cat ./config/hosts.yaml | grep ip | head -1 | awk '{print $2}')
+
+    # Assume "ansible_user" is set; default to "ubuntu" if it is not set.
+    AU=$(cat ./config/hosts.yaml | grep ansible_user | head -1 | awk '{print $2}' | tr -d '"')
+    AU="${AU:-ubuntu}"
+
+    # SSH connection to control node
+    CN="$AU@$IP"
+
+    echo ""
+    echo "Test SSH to control node: $CN"
+    ssh $CN 'echo "ok"'
+
+    echo ""
+    echo "Test kubectl on node: $CN"
+    N=$(ssh $CN 'echo "kubectl get node" | sudo su -' | wc -l)
+    echo "There are $N nodes in the cluster"
+
+    F1=~/.kube/config.kubespray_$CN
+    mkdir -p ~/.kube
+    ssh $CN 'echo "cat /root/.kube/config" | sudo su -' | sed "s/127.0.0.1/$IP/g" > $F1
+    if command -v kubectl &>/dev/null; then
+        KUBECONFIG=$F1 kubectl get nodes -o wide
+    else
+        echo "kubectl was not found"
+    fi
+
+    F=~/.kube/.config
+    if ! diff ~/.kube/config $F1 &>/dev/null; then
+        echo "This test used $F1"
+        echo "Run the following (or similar)"
+        echo "cp -f $F $F.bak && cp -f $F1 $F"
+        read -p "Hit Enter when done"
+    fi
+    echo "Test with default kube config"
+    kubectl get nodes -o wide
+}
+
+
+################################################################################
+
+while [[ $# -gt 0 ]]; do
+  key="$1"
+
+  case $key in
+    -c|--clean)
+        shift
+        clean
+        ;;
+    -b|--build)
+        shift
+        build
+        ;;
+    -t|--test)
+        shift
+        run_test
+        ;;
+    -h|--help)
+        show_usage
+      ;;
+    *)    # unknown option
+      POSITIONAL+=("$1") # save it in an array for later
+      shift # past argument
+      ;;
+  esac
+done
