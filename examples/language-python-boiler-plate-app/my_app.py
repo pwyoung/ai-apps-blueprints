@@ -21,7 +21,7 @@ def print_file(file_path):
 
 
 def my_app():
-    """ This function downloads a file and prints it
+    """This function downloads a file and prints it
     using pure Python.
     The code used is:
     - https://pypi.org/project/wget/

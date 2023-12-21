@@ -33,7 +33,6 @@ fi
 clean() {
     echo "Clean"
 
-
     rm -rf ./outputs/*
     rm -f ./index*.html
 
@@ -43,8 +42,9 @@ build() {
     echo "Build"
 
     # Manually install Python packages
-    #pip install hydra-core --upgrade
-    # Or just use a requirements file
+    # sudo apt install python3.10-venv python3-pip
+
+    # Just use a requirements file
     pip install -r ${MY_DIR}/requirements.txt
 
     # Example, for posterity
@@ -54,6 +54,7 @@ build() {
     #    ${MY_DIR}/setup/$i
     #done
 }
+
 
 run_test() {
     # cd ${MY_DIR}/scripts

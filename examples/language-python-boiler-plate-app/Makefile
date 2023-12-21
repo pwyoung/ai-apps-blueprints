@@ -29,7 +29,7 @@ clean: FORCE
 	$(RUN) --clean || true
 
 format: FORCE
-        @pip show black &>/dev/null || pip install black
+	@pip show black &>/dev/null || pip install black
 	python3 -m black .
 
 # Create the virtual environment if it does not exist
